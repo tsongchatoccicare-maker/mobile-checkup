@@ -14,6 +14,8 @@ const PROFESSIONS=['เจ้าหน้าที่','RN','MT','แพทย�
 const STAFF_TYPES=['ในองค์กร','Part-time','Out Source'];
 const STATUS_FLOW=['Prospect','Closed','Onsite','Lab','Report','Billing','Completed'];
 const MODULES={dashboard:'Dashboard',customers:'CRM',sales:'Sales',op_prep:'Operation-Prep',op_onsite:'Operation-Onsite',lab:'Lab',report:'Report',billing:'Billing',config:'Config'};
+const MODULES={dashboard:'Dashboard',navi_calendar:'Navi Calendar',customers:'CRM',sales:'Sales',op_prep:'Operation-Prep',op_onsite:'Operation-Onsite',lab:'Lab',report:'Report',billing:'Billing',config:'Config'};
+const PAGE_PERMISSIONS={navi_calendar:'dashboard'};
 
 /* ===== UTILS ===== */
 const U={
@@ -52,9 +54,12 @@ const Router={
     const sess=DB.auth.session();
     if(!sess){showLogin();return;}
     if(!DB.auth.can('view',page)){U.toast('⛔ ไม่มีสิทธิ์เข้าถึงหน้านี้','danger');return;}
+    const permissionModule=PAGE_PERMISSIONS[page]||page;
+    if(!DB.auth.can('view',permissionModule)){U.toast('⛔ ไม่มีสิทธิ์เข้าถึงหน้านี้','danger');return;}
     this.current=page;
     document.querySelectorAll('.nav-item').forEach(el=>el.classList.toggle('active',el.dataset.page===page));
     document.getElementById('pt').textContent={dashboard:'Dashboard',customers:'CRM — ลูกค้า',sales:'Sales — Project & Handover',op_checklist:'Operation — เตรียมงาน',op_prep:'Operation — ใบแจ้งงาน',op_onsite:'Operation — Onsite',lab:'Lab — ห้องปฏิบัติการ',report:'Report — ทีมทำผล',billing:'Billing — Invoice',config:'Config — ตั้งค่าระบบ'}[page]||page;
+    document.getElementById('pt').textContent={dashboard:'Dashboard',navi_calendar:'Navi Calendar',customers:'CRM — ลูกค้า',sales:'Sales — Project & Handover',op_checklist:'Operation — เตรียมงาน',op_prep:'Operation — ใบแจ้งงาน',op_onsite:'Operation — Onsite',lab:'Lab — ห้องปฏิบัติการ',report:'Report — ทีมทำผล',billing:'Billing — Invoice',config:'Config — ตั้งค่าระบบ'}[page]||page;
     Pages[page]&&Pages[page].render();
     updateAlerts();
     window.scrollTo(0,0);
@@ -76,6 +81,7 @@ function buildNav(){
   const navEl=document.getElementById('sidebar-nav');
   const items=[
     {page:'dashboard',icon:'📊',label:'Dashboard',mod:'dashboard'},
+    {page:'navi_calendar',icon:'🗓️',label:'Navi Calendar',mod:'dashboard'},
     {section:'ทีมขาย (Sales)'},
     {page:'customers',icon:'👥',label:'CRM — ลูกค้า',mod:'customers'},
     {page:'sales',icon:'💼',label:'Project & Handover',mod:'sales'},
@@ -101,111 +107,7 @@ function buildNav(){
   navEl.innerHTML=html;
   document.getElementById('user-name').textContent=sess.name;
   document.getElementById('user-role').textContent=sess.role;
-  const hn=document.getElementById('header-user-name');
-  const hr=document.getElementById('header-user-role');
-  const av=document.getElementById('user-avatar');
-  if(hn)hn.textContent=sess.name;
-  if(hr)hr.textContent=sess.role;
-  if(av)av.textContent=(sess.name||'U').charAt(0).toUpperCase();
-}
-function updateAlerts(){
-  const a=DB.checkAlerts();
-  const b=document.getElementById('alert-count');
-  b.textContent=a.length;b.style.display=a.length>0?'inline-block':'none';
-}
-
-/* ===== AUTOCOMPLETE HELPERS ===== */
-function acCustomer(inputId,hiddenId){
-  const inp=document.getElementById(inputId);
-  const hid=document.getElementById(hiddenId);
-  const list=document.createElement('div');list.className='ac-list';list.id=inputId+'_list';
-  inp.parentElement.style.position='relative';
-  inp.parentElement.appendChild(list);
-  inp.addEventListener('input',()=>{
-    const q=inp.value.toLowerCase();
-    const custs=DB.customer.listCustomers().filter(c=>c.company_name.toLowerCase().includes(q));
-    if(!q||custs.length===0){list.classList.remove('open');return;}
-    list.innerHTML=custs.slice(0,8).map(c=>`<div class="ac-item" data-id="${c.id}" data-name="${U.esc(c.company_name)}"><strong>${U.esc(c.company_name)}</strong><br><span class="t-sm t-muted">${c.contact_name||''} — ${c.phone||''}</span></div>`).join('');
-    list.classList.add('open');
-    list.querySelectorAll('.ac-item').forEach(el=>el.addEventListener('click',()=>{
-      inp.value=el.dataset.name;hid.value=el.dataset.id;list.classList.remove('open');
-      const c=DB.customer.getCustomer(parseInt(el.dataset.id));
-      if(c){
-        const f=id=>document.getElementById(id);
-        if(f('ac_loc'))f('ac_loc').value=c.address||'';
-        if(f('ac_coord'))f('ac_coord').value=c.contact_name||'';
-        if(f('ac_cphone'))f('ac_cphone').value=c.phone||'';
-        if(f('ac_head'))f('ac_head').value=c.employee_count||'';
-      }
-    }));
-  });
-  document.addEventListener('click',e=>{if(!inp.contains(e.target)&&!list.contains(e.target))list.classList.remove('open');});
-}
-function acProject(inputId,hiddenId,cb){
-  const inp=document.getElementById(inputId);
-  const hid=document.getElementById(hiddenId);
-  const list=document.createElement('div');list.className='ac-list';list.id=inputId+'_list';
-  inp.parentElement.style.position='relative';
-  inp.parentElement.appendChild(list);
-  inp.addEventListener('input',()=>{
-    const q=inp.value.toLowerCase();
-    const projs=DB.sales.listProjects().filter(p=>p.project_code.toLowerCase().includes(q)||p.company_name.toLowerCase().includes(q));
-    if(!q||projs.length===0){list.classList.remove('open');return;}
-    list.innerHTML=projs.slice(0,8).map(p=>`<div class="ac-item" data-id="${p.id}"><strong>${U.esc(p.project_code)}</strong> — ${U.esc(p.company_name)}<br><span class="t-sm t-muted">${U.fmtD(p.onsite_date)} | ${(p.headcount||0).toLocaleString()} คน</span></div>`).join('');
-    list.classList.add('open');
-    list.querySelectorAll('.ac-item').forEach(el=>el.addEventListener('click',()=>{
-      const p=DB.sales.getProject(parseInt(el.dataset.id));
-      inp.value=p.project_code+' — '+p.company_name;hid.value=p.id;list.classList.remove('open');
-      cb&&cb(p);
-    }));
-  });
-  document.addEventListener('click',e=>{if(!inp.contains(e.target)&&!list.contains(e.target))list.classList.remove('open');});
-}
-
-/* ===== PAGES ===== */
-const Pages={};
-
-/* ── DASHBOARD ── */
-Pages.dashboard={
-  _filter:'all',
-  render(){
-  const projs=DB.sales.listProjects();
-  const invs=DB.billing.listInvoices();
-  const alerts=DB.checkAlerts();
-  const rev=invs.reduce((s,i)=>s+(i.revenue||0),0);
-  const prf=invs.reduce((s,i)=>s+(i.profit||0),0);
-  const pend=invs.filter(i=>i.status==='Pending');
-  const sc={};projs.forEach(p=>{sc[p.status]=(sc[p.status]||0)+1;});
-  let aHtml=alerts.map(a=>`<div class="ab ${a.type}">${a.msg}</div>`).join('');
-  const statusOpts=['all',...STATUS_FLOW].map(s=>`<option value="${s}" ${this._filter===s?'selected':''}>${s==='all'?'ทุกสถานะ':s}</option>`).join('');
-  const filtered=this._filter==='all'?projs.slice().reverse():projs.slice().reverse().filter(p=>p.status===this._filter);
-  const rows=filtered.map(p=>`<tr><td class="fw6">${p.project_code}</td><td>${p.company_name}</td><td>${(p.headcount||0).toLocaleString()}</td><td>${U.fmtD(p.onsite_date)}</td><td>${U.badge(p.status)}</td><td><button class="btn btn-out btn-xs" onclick="Router.navigate('report')">ดู</button></td></tr>`).join('');
-  document.getElementById('content').innerHTML=`
-  <div class="ph"><div><h2>📊 Dashboard</h2><p>ภาพรวมระบบ Mobile Checkup</p></div>
-    ${DB.auth.can('add','config')?`<button class="btn btn-out btn-sm" onclick="Pages.dashboard.reset()">🔄 รีเซ็ต Demo</button>`:''}
-  </div>
-  ${aHtml?`<div class="mb4">${aHtml}</div>`:''}
-  <div class="metrics-grid">
-    <div class="metric-card acc"><div class="metric-label">Project ทั้งหมด</div><div class="metric-value">${projs.length}</div></div>
-    <div class="metric-card suc"><div class="metric-label">รายได้รวม</div><div class="metric-value">฿${U.fmt(Math.round(rev/1000))}K</div></div>
-    <div class="metric-card"><div class="metric-label">กำไรรวม</div><div class="metric-value">฿${U.fmt(Math.round(prf/1000))}K</div></div>
-    <div class="metric-card warn"><div class="metric-label">Invoice ค้าง</div><div class="metric-value">${pend.length}</div><div class="metric-sub">฿${U.fmt(Math.round(pend.reduce((s,i)=>s+i.total,0)/1000))}K</div></div>
-    <div class="metric-card ${alerts.length>0?'danger':''}"><div class="metric-label">แจ้งเตือน</div><div class="metric-value">${alerts.length}</div></div>
-  </div>
-  <div class="g2">
-    <div class="card"><div class="card-header"><span class="card-title">Status Project</span></div>
-      ${STATUS_FLOW.map(s=>`<div class="sr" style="cursor:pointer" onclick="Pages.dashboard.filterStatus('${s}')"><span>${U.badge(s)}</span><span class="fw6">${sc[s]||0}</span></div>`).join('')}
-    </div>
-    <div class="card"><div class="card-header"><span class="card-title">⚡ Quick Actions</span></div>
-      <div class="btn-grp" style="flex-direction:column;align-items:stretch">
-        ${DB.auth.can('add','sales')?`<button class="btn btn-pri" onclick="Pages.sales.addProject()">+ สร้าง Project ใหม่</button>`:''}
-        ${DB.auth.can('view','customers')?`<button class="btn btn-out" onclick="Router.navigate('customers')">👥 จัดการลูกค้า</button>`:''}
-        ${DB.auth.can('view','op_prep')?`<button class="btn btn-out" onclick="Router.navigate('op_prep')">📋 ใบแจ้งงาน</button>`:''}
-        ${DB.auth.can('view','lab')?`<button class="btn btn-out" onclick="Router.navigate('lab')">🔬 ดู Lab & TAT</button>`:''}
-        ${DB.auth.can('view','billing')?`<button class="btn btn-out" onclick="Router.navigate('billing')">💰 ออก Invoice</button>`:''}
-      </div>
-    </div>
-  </div>
+@@ -209,50 +212,84 @@ Pages.dashboard={
   <div class="card mt4">
     <div class="card-header">
       <span class="card-title">📁 Project ล่าสุด ${this._filter!=='all'?`<span class="badge b-lab" style="margin-left:6px">${this._filter}</span>`:''}</span>
@@ -230,6 +132,40 @@ showAlerts(){
 },
 reset(){if(U.confirm('รีเซ็ต Mock Data ทั้งหมด?')){['auth_db','customer_db','sales_db','operation_db','lab_db','report_db','billing_db'].forEach(db=>{Object.keys(localStorage).filter(k=>k.startsWith(db+'__')).forEach(k=>localStorage.removeItem(k));});DB.seedMockData();buildNav();this.render();U.toast('✅ รีเซ็ตแล้ว');}}
 };
+
+/* ── NAVI CALENDAR ── */
+Pages.navi_calendar={render(){
+  const projects=DB.sales.listProjects().slice().sort((a,b)=>new Date(a.onsite_date)-new Date(b.onsite_date));
+  const rows=projects.map(p=>`<tr>
+    <td class="fw6">${U.fmtD(p.onsite_date)}</td>
+    <td>${p.project_code}</td>
+    <td>${U.esc(p.company_name)}</td>
+    <td>${(p.headcount||0).toLocaleString()}</td>
+    <td>${U.badge(p.status)}</td>
+    <td><button class="btn btn-out btn-xs" onclick="Router.navigate('sales')">ดูรายละเอียด</button></td>
+  </tr>`).join('');
+  document.getElementById('content').innerHTML=`
+  <div class="ph">
+    <div>
+      <h2>🗓️ Navi Calendar</h2>
+      <p>ปฏิทินกำหนดการออกตรวจ (เรียงตามวันตรวจสุขภาพ)</p>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">ตารางนัดหมายทั้งหมด</span>
+      <span class="t-sm t-muted">${projects.length} รายการ</span>
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <thead>
+          <tr><th>วันตรวจ</th><th>Project Code</th><th>บริษัท</th><th>จำนวนคน</th><th>สถานะ</th><th></th></tr>
+        </thead>
+        <tbody>${rows||'<tr><td colspan="6" class="empty">ยังไม่มีกำหนดการ</td></tr>'}</tbody>
+      </table>
+    </div>
+  </div>`;
+}};
 
 /* ── CUSTOMERS ── */
 Pages.customers={render(){
