@@ -209,11 +209,7 @@ const DB={
     DB.report.listPlans().forEach(rp=>{
       if(!rp.sla_deadline||rp.status==='sent')return;
       const d=Math.ceil((new Date(rp.sla_deadline)-today)/86400000);
-
-
-
-
-const p=DB.sales.getProject(rp.project_id);const nm=p?p.company_name:`#${rp.project_id}`;
+      const p=DB.sales.getProject(rp.project_id);const nm=p?p.company_name:`#${rp.project_id}`;
       if(d<0)alerts.push({type:'danger',msg:`⚠ SLA เกินกำหนด: ${nm}`,project_id:rp.project_id});
       else if(d<=ad)alerts.push({type:'warning',msg:`📋 SLA ใกล้ครบ ${d} วัน: ${nm}`,project_id:rp.project_id});
     });
@@ -244,12 +240,6 @@ const p=DB.sales.getProject(rp.project_id);const nm=p?p.company_name:`#${rp.proj
       {role:'lab',modules:{dashboard:viewOnly,customers:none,sales:viewOnly,op_prep:viewOnly,op_onsite:viewOnly,lab:fullNoDel,report:none,billing:none,config:none},created_at:DB._now(),updated_at:DB._now()},
       {role:'report',modules:{dashboard:viewOnly,customers:viewOnly,sales:fullNoDel,op_prep:viewOnly,op_onsite:viewOnly,lab:viewOnly,report:fullNoDel,billing:none,config:none},created_at:DB._now(),updated_at:DB._now()},
       {role:'billing',modules:{dashboard:viewOnly,customers:viewOnly,sales:viewOnly,op_prep:none,op_onsite:none,lab:none,report:viewOnly,billing:fullNoDel,config:none},created_at:DB._now(),updated_at:DB._now()}
-      {role:'admin',modules:{dashboard:full,navi_calendar:full,customers:full,sales:full,op_prep:full,op_onsite:full,lab:full,report:full,billing:full,config:full},created_at:DB._now(),updated_at:DB._now()},
-      {role:'sales',modules:{dashboard:viewOnly,navi_calendar:viewOnly,customers:fullNoDel,sales:fullNoDel,op_prep:none,op_onsite:none,lab:none,report:none,billing:none,config:none},created_at:DB._now(),updated_at:DB._now()},
-      {role:'operation',modules:{dashboard:viewOnly,navi_calendar:viewOnly,customers:viewOnly,sales:viewOnly,op_prep:full,op_onsite:full,lab:none,report:none,billing:none,config:none},created_at:DB._now(),updated_at:DB._now()},
-      {role:'lab',modules:{dashboard:viewOnly,navi_calendar:viewOnly,customers:none,sales:viewOnly,op_prep:viewOnly,op_onsite:viewOnly,lab:fullNoDel,report:none,billing:none,config:none},created_at:DB._now(),updated_at:DB._now()},
-      {role:'report',modules:{dashboard:viewOnly,navi_calendar:viewOnly,customers:viewOnly,sales:fullNoDel,op_prep:viewOnly,op_onsite:viewOnly,lab:viewOnly,report:fullNoDel,billing:none,config:none},created_at:DB._now(),updated_at:DB._now()},
-      {role:'billing',modules:{dashboard:viewOnly,navi_calendar:viewOnly,customers:viewOnly,sales:viewOnly,op_prep:none,op_onsite:none,lab:none,report:viewOnly,billing:fullNoDel,config:none},created_at:DB._now(),updated_at:DB._now()}
     ]);
     DB._set('customer_db','customers',[
       {id:1,company_name:'บริษัท ABC Manufacturing จำกัด',address:'123 ถนนอุตสาหกรรม นิคมอมตะ ชลบุรี 20000',phone:'038-123456',email:'hr@abc-mfg.co.th',contact_name:'คุณสมใจ วงศ์ดี',contact_role:'HR Manager',employee_count:480,last_contact:'2025-11-01',note:'ลูกค้าประจำ ตรวจทุกปี',sales_status:'Closed',closed_at:'2025-11-05',created_at:DB._now(),updated_at:DB._now()},
@@ -275,77 +265,7 @@ const p=DB.sales.getProject(rp.project_id);const nm=p?p.company_name:`#${rp.proj
       {id:2,project_id:2,company_name:'โรงงาน TechParts Co., Ltd.',location:'โรงงาน TechParts พานทอง',onsite_date:'2025-11-20',headcount:150,depart_time:'06:00',start_time:'08:00',end_time:'15:00',director:'ผอ.วิชัย สุขสม',job_type:'ตรวจสุขภาพ',shift:'เช้า',remark:'',signer_creator:'นายวิชัย สุขใจ',signer_head:'หน.สมศักดิ์ ใจดี',signer_hr:'HR มาลี รักไทย',status:'Completed',created_at:'2025-11-01T08:00:00.000Z',updated_at:DB._now()}
     ]);
     DB._set('operation_db','job_stations',[
-
-
-
-
-
-
-
-
-
-
-
-
-      
-      /*const p=DB.sales.getProject(rp.project_id);const nm=p?p.company_name:`#${rp.project_id}`;
-      if(d<0)alerts.push({type:'danger',msg:`⚠ SLA เกินกำหนด: ${nm}`,project_id:rp.project_id});
-      else if(d<=ad)alerts.push({type:'warning',msg:`📋 SLA ใกล้ครบ ${d} วัน: ${nm}`,project_id:rp.project_id});
-    });
-    DB.lab.listAlerts().filter(a=>!a.acknowledged).forEach(a=>{
-      alerts.push({type:'critical',msg:`🚨 Critical: ${a.patient_name} — ${a.test_name}=${a.value}`,project_id:a.project_id});
-    });
-    return alerts;
-  },
-
-  seedMockData(){
-    if(DB._get('auth_db','users').length>0)return;
-    DB._set('auth_db','users',[
-      {id:1,username:'admin',password:'admin1234',name:'ผู้ดูแลระบบ',role:'admin',active:true,created_at:DB._now(),updated_at:DB._now()},
-      {id:2,username:'sales01',password:'sales1234',name:'นางสาวพิมพ์ใจ ดีงาม',role:'sales',active:true,created_at:DB._now(),updated_at:DB._now()},
-      {id:3,username:'op01',password:'op1234',name:'นายวิชัย สุขใจ',role:'operation',active:true,created_at:DB._now(),updated_at:DB._now()},
-      {id:4,username:'lab01',password:'lab1234',name:'นางสาวรัตนา ใจดี',role:'lab',active:true,created_at:DB._now(),updated_at:DB._now()},
-      {id:5,username:'report01',password:'rpt1234',name:'นายสมชาย วงศ์ดี',role:'report',active:true,created_at:DB._now(),updated_at:DB._now()},
-      {id:6,username:'billing01',password:'bill1234',name:'นางมาลี รักไทย',role:'billing',active:true,created_at:DB._now(),updated_at:DB._now()}
-    ]);
-    const viewOnly={view:true,add:false,edit:false,delete:false};
-    const full={view:true,add:true,edit:true,delete:true};
-    const fullNoDel={view:true,add:true,edit:true,delete:false};
-    const none={view:false,add:false,edit:false,delete:false};
-    DB._set('auth_db','role_permissions',[
-      {role:'admin',modules:{dashboard:full,customers:full,sales:full,op_prep:full,op_onsite:full,lab:full,report:full,billing:full,config:full},created_at:DB._now(),updated_at:DB._now()},
-      {role:'sales',modules:{dashboard:viewOnly,customers:fullNoDel,sales:fullNoDel,op_prep:none,op_onsite:none,lab:none,report:none,billing:none,config:none},created_at:DB._now(),updated_at:DB._now()},
-      {role:'operation',modules:{dashboard:viewOnly,customers:viewOnly,sales:viewOnly,op_prep:full,op_onsite:full,lab:none,report:none,billing:none,config:none},created_at:DB._now(),updated_at:DB._now()},
-      {role:'lab',modules:{dashboard:viewOnly,customers:none,sales:viewOnly,op_prep:viewOnly,op_onsite:viewOnly,lab:fullNoDel,report:none,billing:none,config:none},created_at:DB._now(),updated_at:DB._now()},
-      {role:'report',modules:{dashboard:viewOnly,customers:viewOnly,sales:fullNoDel,op_prep:viewOnly,op_onsite:viewOnly,lab:viewOnly,report:fullNoDel,billing:none,config:none},created_at:DB._now(),updated_at:DB._now()},
-      {role:'billing',modules:{dashboard:viewOnly,customers:viewOnly,sales:viewOnly,op_prep:none,op_onsite:none,lab:none,report:viewOnly,billing:fullNoDel,config:none},created_at:DB._now(),updated_at:DB._now()}
-    ]);
-    DB._set('customer_db','customers',[
-      {id:1,company_name:'บริษัท ABC Manufacturing จำกัด',address:'123 ถนนอุตสาหกรรม นิคมอมตะ ชลบุรี 20000',phone:'038-123456',email:'hr@abc-mfg.co.th',contact_name:'คุณสมใจ วงศ์ดี',contact_role:'HR Manager',employee_count:480,last_contact:'2025-11-01',note:'ลูกค้าประจำ ตรวจทุกปี',sales_status:'Closed',closed_at:'2025-11-05',created_at:DB._now(),updated_at:DB._now()},
-      {id:2,company_name:'บริษัท XYZ Logistics จำกัด',address:'456 ถนนสุขุมวิท บางนา กรุงเทพ 10260',phone:'02-456789',email:'safety@xyz-log.co.th',contact_name:'คุณวิรัตน์ ใจดี',contact_role:'Safety Officer',employee_count:320,last_contact:'2025-11-10',note:'ราคาต่อรอง',sales_status:'Negotiation',closed_at:null,created_at:DB._now(),updated_at:DB._now()},
-      {id:3,company_name:'โรงงาน TechParts Co., Ltd.',address:'789 เขตอุตสาหกรรม อ.พานทอง ชลบุรี 20160',phone:'038-789012',email:'admin@techparts.th',contact_name:'คุณมาลี รักไทย',contact_role:'Owner',employee_count:150,last_contact:'2025-10-28',note:'PKG-C ผู้บริหาร + PKG-B พนักงาน',sales_status:'Closed',closed_at:'2025-10-30',created_at:DB._now(),updated_at:DB._now()},
-      {id:4,company_name:'บริษัท Green Energy จำกัด',address:'321 ถนนพระราม 9 ห้วยขวาง กรุงเทพ 10320',phone:'02-321654',email:'hr@greenenergy.co.th',contact_name:'คุณอนันต์ สุขสม',contact_role:'HR Director',employee_count:200,last_contact:'2025-11-15',note:'Prospect ใหม่',sales_status:'Follow up',closed_at:null,created_at:DB._now(),updated_at:DB._now()}
-    ]);
-    DB._set('customer_db','sales_logs',[
-      {id:1,customer_id:1,note:'คุยโทรศัพท์ครั้งแรก สนใจ PKG-B',created_at:'2025-10-25T09:00:00.000Z'},
-      {id:2,customer_id:1,note:'ส่งใบเสนอราคา PKG-B 480 คน',created_at:'2025-10-28T14:00:00.000Z'},
-      {id:3,customer_id:1,note:'ปิดการขาย ยืนยันวันออกตรวจ 15 ธ.ค.',created_at:'2025-11-05T10:30:00.000Z'}
-    ]);
-    DB._set('sales_db','projects',[
-      {id:1,project_code:'MCK-20251115-001',customer_id:1,company_name:'บริษัท ABC Manufacturing จำกัด',package_code:'PKG-B',package_name:'อาชีวอนามัย + Lab',headcount:480,onsite_date:'2025-12-15',onsite_time:'07:00',onsite_time_end:'16:00',location:'โรงงาน ABC นิคมอมตะ ชลบุรี',coordinator_name:'คุณสมใจ วงศ์ดี',coordinator_phone:'038-123456',status:'Report',created_by:'นางสาวพิมพ์ใจ',created_at:'2025-11-15T08:00:00.000Z',updated_at:DB._now()},
-      {id:2,project_code:'MCK-20251030-002',customer_id:3,company_name:'โรงงาน TechParts Co., Ltd.',package_code:'PKG-B/C',package_name:'PKG-C+PKG-B',headcount:150,onsite_date:'2025-11-20',onsite_time:'08:00',onsite_time_end:'15:00',location:'โรงงาน TechParts พานทอง ชลบุรี',coordinator_name:'คุณมาลี รักไทย',coordinator_phone:'038-789012',status:'Lab',created_by:'นายสมชาย',created_at:'2025-10-30T09:00:00.000Z',updated_at:DB._now()}
-    ]);
-    DB._set('sales_db','internal_handover',[
-      {id:1,project_id:1,layout_file:'Layout_ABC_20251215.pdf',name_list_file:'รายชื่อ_ABC_480คน.xlsx',quotation_file:'QT-2025-0123.pdf',conditions:'แยกผลตรวจแพทย์',sent_at:'2025-11-15T08:30:00.000Z',created_at:'2025-11-15T08:30:00.000Z',updated_at:DB._now()},
-      {id:2,project_id:2,layout_file:'Layout_TechParts_20251120.pdf',name_list_file:'รายชื่อ_TechParts_150คน.xlsx',quotation_file:'QT-2025-0098.pdf',conditions:'PKG-C เสร็จก่อนบ่าย',sent_at:'2025-10-30T10:00:00.000Z',created_at:'2025-10-30T10:00:00.000Z',updated_at:DB._now()}
-    ]);
-    DB._set('operation_db','job_orders',[
-      {id:1,project_id:1,company_name:'บริษัท ABC Manufacturing จำกัด',location:'โรงงาน ABC นิคมอมตะ ชลบุรี',onsite_date:'2025-12-15',headcount:480,depart_time:'05:30',start_time:'07:00',end_time:'16:00',director:'ผอ.วิชัย สุขสม',job_type:'ตรวจสุขภาพ',shift:'เช้า',remark:'จอดรถหน้าโรงงาน A',signer_creator:'นายวิชัย สุขใจ',signer_head:'หน.สมศักดิ์ ใจดี',signer_hr:'HR สมใจ วงศ์ดี',status:'Confirmed',created_at:'2025-11-17T09:00:00.000Z',updated_at:DB._now()},
-      {id:2,project_id:2,company_name:'โรงงาน TechParts Co., Ltd.',location:'โรงงาน TechParts พานทอง',onsite_date:'2025-11-20',headcount:150,depart_time:'06:00',start_time:'08:00',end_time:'15:00',director:'ผอ.วิชัย สุขสม',job_type:'ตรวจสุขภาพ',shift:'เช้า',remark:'',signer_creator:'นายวิชัย สุขใจ',signer_head:'หน.สมศักดิ์ ใจดี',signer_hr:'HR มาลี รักไทย',status:'Completed',created_at:'2025-11-01T08:00:00.000Z',updated_at:DB._now()}
-    ]);
-    
-      DB._set('operation_db','job_stations',[
-      */{id:1,job_order_id:1,order_no:1,station_code:'ST-01',station_name:'ลงทะเบียน',staff_count:2,profession:'เจ้าหน้าที่',staff_name:'นางสาวมณี แสงทอง',staff_type:'ในองค์กร',remark:'',created_at:DB._now(),updated_at:DB._now()},
+      {id:1,job_order_id:1,order_no:1,station_code:'ST-01',station_name:'ลงทะเบียน',staff_count:2,profession:'เจ้าหน้าที่',staff_name:'นางสาวมณี แสงทอง',staff_type:'ในองค์กร',remark:'',created_at:DB._now(),updated_at:DB._now()},
       {id:2,job_order_id:1,order_no:2,station_code:'ST-03',station_name:'ชั่งน้ำหนัก & วัดส่วนสูง',staff_count:1,profession:'เจ้าหน้าที่',staff_name:'นายสมชาย ทองดี',staff_type:'ในองค์กร',remark:'',created_at:DB._now(),updated_at:DB._now()},
       {id:3,job_order_id:1,order_no:3,station_code:'ST-04',station_name:'ซักประวัติ & วัดความดัน',staff_count:2,profession:'RN',staff_name:'นางสาวรัตนา ใจดี',staff_type:'ในองค์กร',remark:'',created_at:DB._now(),updated_at:DB._now()},
       {id:4,job_order_id:1,order_no:4,station_code:'ST-05',station_name:'เจาะเลือด',staff_count:3,profession:'MT',staff_name:'นายสุรชัย วงศ์ดี',staff_type:'ในองค์กร',remark:'',created_at:DB._now(),updated_at:DB._now()},
