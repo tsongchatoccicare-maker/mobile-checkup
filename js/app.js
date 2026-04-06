@@ -51,10 +51,16 @@ const Router={
   navigate(page){
     const sess=DB.auth.session();
     if(!sess){showLogin();return;}
+    if(page==='calendar'){
+      document.querySelectorAll('.nav-item').forEach(el=>el.classList.toggle('active',el.dataset.page===page));
+      document.getElementById('pt').textContent='ปฏิทินงาน';
+      if(typeof CalendarPage!=='undefined'){CalendarPage.render();}
+      updateAlerts();window.scrollTo(0,0);return;
+    }
     if(!DB.auth.can('view',page)){U.toast('⛔ ไม่มีสิทธิ์เข้าถึงหน้านี้','danger');return;}
     this.current=page;
     document.querySelectorAll('.nav-item').forEach(el=>el.classList.toggle('active',el.dataset.page===page));
-    document.getElementById('pt').textContent={dashboard:'Dashboard',customers:'CRM — ลูกค้า',sales:'Sales — Project & Handover',op_checklist:'Operation — เตรียมงาน',op_prep:'Operation — ใบแจ้งงาน',op_onsite:'Operation — Onsite',lab:'Lab — ห้องปฏิบัติการ',report:'Report — ทีมทำผล',billing:'Billing — Invoice',config:'Config — ตั้งค่าระบบ'}[page]||page;
+    document.getElementById('pt').textContent={dashboard:'Dashboard',calendar:'ปฏิทินงาน',customers:'CRM — ลูกค้า',sales:'Sales — Project & Handover',op_checklist:'Operation — เตรียมงาน',op_prep:'Operation — ใบแจ้งงาน',op_onsite:'Operation — Onsite',lab:'Lab — ห้องปฏิบัติการ',report:'Report — ทีมทำผล',billing:'Billing — Invoice',config:'Config — ตั้งค่าระบบ'}[page]||page;
     Pages[page]&&Pages[page].render();
     updateAlerts();
     window.scrollTo(0,0);
@@ -76,6 +82,7 @@ function buildNav(){
   const navEl=document.getElementById('sidebar-nav');
   const items=[
     {page:'dashboard',icon:'📊',label:'Dashboard',mod:'dashboard'},
+    {page:'calendar',icon:'📅',label:'ปฏิทินงาน',mod:'dashboard'},
     {section:'ทีมขาย (Sales)'},
     {page:'customers',icon:'👥',label:'CRM — ลูกค้า',mod:'customers'},
     {page:'sales',icon:'💼',label:'Project & Handover',mod:'sales'},
@@ -179,46 +186,91 @@ Pages.dashboard={
   let aHtml=alerts.map(a=>`<div class="ab ${a.type}">${a.msg}</div>`).join('');
   const statusOpts=['all',...STATUS_FLOW].map(s=>`<option value="${s}" ${this._filter===s?'selected':''}>${s==='all'?'ทุกสถานะ':s}</option>`).join('');
   const filtered=this._filter==='all'?projs.slice().reverse():projs.slice().reverse().filter(p=>p.status===this._filter);
-  const rows=filtered.map(p=>`<tr><td class="fw6">${p.project_code}</td><td>${p.company_name}</td><td>${(p.headcount||0).toLocaleString()}</td><td>${U.fmtD(p.onsite_date)}</td><td>${U.badge(p.status)}</td><td><button class="btn btn-out btn-xs" onclick="Router.navigate('report')">ดู</button></td></tr>`).join('');
+  // Build workflow cards
+  const wfCards=filtered.map(p=>{
+    const jo=DB.operation.getJobOrder(p.id);
+    const lp=DB.lab.getLabProject(p.id);
+    const rp=DB.report.getPlan(p.id);
+    const inv=DB.billing.getInvoice(p.id);
+    const h=DB.sales.getHandover(p.id);
+    const meta=JSON.parse(localStorage.getItem('rp_meta_'+p.id)||'{}');
+    const ckl=JSON.parse(localStorage.getItem('ckl__'+p.id)||'{}');
+    const cklDone=Object.keys(ckl).filter(k=>!k.endsWith('_note')&&ckl[k]).length;
+    const steps=[
+      {icon:'💼',label:'Handover',done:!!h&&!!p.handover_sent,role:'Sales'},
+      {icon:'📋',label:'ใบแจ้งงาน',done:!!jo&&jo.status!=='Draft',role:'Op'},
+      {icon:'✅',label:'Checklist',done:cklDone>=10,role:'Op'},
+      {icon:'🚑',label:'Onsite',done:p.status!=='Closed'&&p.status!=='Prospect',role:'Op'},
+      {icon:'🔬',label:'ส่ง Lab',done:!!lp,role:'Lab'},
+      {icon:'⏱',label:'TAT',done:lp?.status==='reported',role:'Lab'},
+      {icon:'📄',label:'Set Plan',done:!!meta.set_plan,role:'Report'},
+      {icon:'📋',label:'ส่งผล',done:rp?.status==='sent',role:'Report'},
+      {icon:'💰',label:'Invoice',done:!!inv,role:'Billing'},
+      {icon:'🏦',label:'ชำระแล้ว',done:inv?.status==='Paid',role:'Billing'},
+    ];
+    const daysLeft=p.onsite_date?Math.ceil((new Date(p.onsite_date)-new Date())/86400000):null;
+    return`<div class="wf-card">
+      <div class="wf-header">
+        <div>
+          <div class="wf-code">${p.project_code}</div>
+          <div class="wf-company">${U.esc(p.company_name)}</div>
+          <div class="t-xs t-muted mt2">📆 ${U.fmtD(p.onsite_date)} | ${(p.headcount||0).toLocaleString()} คน${daysLeft!==null&&daysLeft>=0&&daysLeft<=3?` | <span style="color:var(--warn);font-weight:700">⚠ อีก ${daysLeft} วัน</span>`:''}${p.due_date?` | กำหนดส่ง: ${U.fmtD(p.due_date)}`:''}</div>
+        </div>
+        <div style="text-align:right">
+          ${U.badge(p.status)}
+          <div class="t-xs t-muted mt2">${steps.filter(s=>s.done).length}/${steps.length} ขั้นตอน</div>
+        </div>
+      </div>
+      <div class="wf-steps">
+        ${steps.map(s=>`<div class="wf-step ${s.done?'done':'pending'}">
+          <div class="wf-step-icon">${s.done?'✅':'⬜'}</div>
+          <div class="wf-step-label">${s.label}</div>
+          <div style="font-size:8px;color:var(--txt-lt);margin-top:1px">${s.role}</div>
+        </div>`).join('')}
+      </div>
+    </div>`;
+  }).join('');
   document.getElementById('content').innerHTML=`
-  <div class="ph"><div><h2>📊 Dashboard</h2><p>ภาพรวมระบบ Mobile Checkup</p></div>
-    ${DB.auth.can('add','config')?`<button class="btn btn-out btn-sm" onclick="Pages.dashboard.reset()">🔄 รีเซ็ต Demo</button>`:''}
+  <div class="ph"><div><h2>📊 Dashboard</h2><p>OcciCare Mobile Checkup System</p></div>
+    <div class="btn-grp">
+      ${DB.auth.can('add','sales')?`<button class="btn btn-pri btn-sm" onclick="Pages.sales.addProject()">+ Project ใหม่</button>`:''}
+      ${DB.auth.can('add','config')?`<button class="btn btn-out btn-sm" onclick="Pages.dashboard.reset()">🔄 รีเซ็ต</button>`:''}
+    </div>
   </div>
   ${aHtml?`<div class="mb4">${aHtml}</div>`:''}
   <div class="metrics-grid">
     <div class="metric-card acc"><div class="metric-label">Project ทั้งหมด</div><div class="metric-value">${projs.length}</div></div>
     <div class="metric-card suc"><div class="metric-label">รายได้รวม</div><div class="metric-value">฿${U.fmt(Math.round(rev/1000))}K</div></div>
-    <div class="metric-card"><div class="metric-label">กำไรรวม</div><div class="metric-value">฿${U.fmt(Math.round(prf/1000))}K</div></div>
+    <div class="metric-card gold"><div class="metric-label">กำไรรวม</div><div class="metric-value">฿${U.fmt(Math.round(prf/1000))}K</div></div>
     <div class="metric-card warn"><div class="metric-label">Invoice ค้าง</div><div class="metric-value">${pend.length}</div><div class="metric-sub">฿${U.fmt(Math.round(pend.reduce((s,i)=>s+i.total,0)/1000))}K</div></div>
     <div class="metric-card ${alerts.length>0?'danger':''}"><div class="metric-label">แจ้งเตือน</div><div class="metric-value">${alerts.length}</div></div>
   </div>
-  <div class="g2">
-    <div class="card"><div class="card-header"><span class="card-title">Status Project</span></div>
+  <div class="g2 mb4">
+    <div class="card"><div class="card-header"><span class="card-title">สถานะ Project</span></div>
       ${STATUS_FLOW.map(s=>`<div class="sr" style="cursor:pointer" onclick="Pages.dashboard.filterStatus('${s}')"><span>${U.badge(s)}</span><span class="fw6">${sc[s]||0}</span></div>`).join('')}
     </div>
     <div class="card"><div class="card-header"><span class="card-title">⚡ Quick Actions</span></div>
       <div class="btn-grp" style="flex-direction:column;align-items:stretch">
-        ${DB.auth.can('add','sales')?`<button class="btn btn-pri" onclick="Pages.sales.addProject()">+ สร้าง Project ใหม่</button>`:''}
         ${DB.auth.can('view','customers')?`<button class="btn btn-out" onclick="Router.navigate('customers')">👥 จัดการลูกค้า</button>`:''}
+        ${DB.auth.can('view','calendar')?`<button class="btn btn-out" onclick="Router.navigate('calendar')">📅 ปฏิทินงาน</button>`:''}
         ${DB.auth.can('view','op_prep')?`<button class="btn btn-out" onclick="Router.navigate('op_prep')">📋 ใบแจ้งงาน</button>`:''}
         ${DB.auth.can('view','lab')?`<button class="btn btn-out" onclick="Router.navigate('lab')">🔬 ดู Lab & TAT</button>`:''}
         ${DB.auth.can('view','billing')?`<button class="btn btn-out" onclick="Router.navigate('billing')">💰 ออก Invoice</button>`:''}
       </div>
     </div>
   </div>
-  <div class="card mt4">
+  <div class="card">
     <div class="card-header">
-      <span class="card-title">📁 Project ล่าสุด ${this._filter!=='all'?`<span class="badge b-lab" style="margin-left:6px">${this._filter}</span>`:''}</span>
+      <span class="card-title">📊 สถานะงานทุก Project (Workflow Tracker)</span>
       <div style="display:flex;align-items:center;gap:8px">
         <span class="t-sm t-muted">${filtered.length} รายการ</span>
-        <select onchange="Pages.dashboard.filterStatus(this.value)" style="padding:5px 10px;border:1px solid var(--bdr);border-radius:6px;font-size:12px;background:var(--surf)">
+        <select onchange="Pages.dashboard.filterStatus(this.value)" style="padding:5px 10px;border:1.5px solid var(--bdr);border-radius:8px;font-size:12px;background:var(--surf)">
           ${statusOpts}
         </select>
-        ${this._filter!=='all'?`<button class="btn btn-out btn-xs" onclick="Pages.dashboard.filterStatus('all')">✕ ล้าง</button>`:''}
+        ${this._filter!=='all'?`<button class="btn btn-out btn-xs" onclick="Pages.dashboard.filterStatus('all')">✕</button>`:''}
       </div>
     </div>
-    <div class="tbl-wrap"><table><thead><tr><th>Code</th><th>บริษัท</th><th>คน</th><th>วันตรวจ</th><th>สถานะ</th><th></th></tr></thead>
-    <tbody>${rows||`<tr><td colspan="6" class="empty">ไม่พบ Project ${this._filter!=='all'?`สถานะ "${this._filter}"`:''}` }</tbody></table></div>
+    ${wfCards||`<div class="empty"><div class="icon">📋</div><p>ไม่พบ Project${this._filter!=='all'?` สถานะ "${this._filter}"`:''}  <button class="btn btn-out btn-sm" onclick="Pages.sales.addProject()">+ สร้างใหม่</button></p></div>`}
   </div>`;
 },
 filterStatus(s){this._filter=s;this.render();},
@@ -274,61 +326,91 @@ logs(cid){
 /* ── SALES ── */
 Pages.sales={render(){
   const projs=DB.sales.listProjects();
-  const canAdd=DB.auth.can('add','sales'),canEdit=DB.auth.can('edit','sales');
-  const rows=projs.slice().reverse().map(p=>`<tr><td class="fw6">${p.project_code}</td><td>${p.company_name}</td><td>${p.package_code||''}</td><td>${(p.headcount||0).toLocaleString()}</td><td>${U.fmtD(p.onsite_date)}</td><td>${U.badge(p.status)}</td><td>
-    ${canEdit?`<button class="btn btn-out btn-xs" onclick="Pages.sales.editProject(${p.id})">แก้ไข</button>`:''}
-    <button class="btn btn-out btn-xs" onclick="Pages.sales.viewHandover(${p.id})">เอกสาร</button>
-  </td></tr>`).join('');
+  const canAdd=DB.auth.can('add','sales'),canEdit=DB.auth.can('edit','sales'),canDel=DB.auth.can('delete','sales');
+  const rows=projs.slice().reverse().map(p=>{
+    const ticked=!!p.handover_sent;
+    const filesData=JSON.parse(localStorage.getItem('proj_files_'+p.id)||'{}');
+    const hasFiles=Object.values(filesData).some(a=>a&&a.length>0);
+    return`<tr>
+      <td class="fw6">${p.project_code}</td>
+      <td>${U.esc(p.company_name)}</td>
+      <td>${(p.headcount||0).toLocaleString()}</td>
+      <td>${U.fmtD(p.onsite_date)}</td>
+      <td>${p.due_date?U.fmtD(p.due_date):'<span class="t-muted t-sm">-</span>'}</td>
+      <td>${U.badge(p.status)}</td>
+      <td style="text-align:center">${canEdit
+        ?`<input type="checkbox" ${ticked?'checked':''} style="width:16px;height:16px;accent-color:var(--suc);cursor:pointer" onchange="Pages.sales.tickHandover(${p.id},this.checked)" title="เอกสารเวียนส่งแล้ว"/>`
+        :(ticked?'✅':'⬜')}</td>
+      <td>
+        ${canEdit?`<button class="btn btn-out btn-xs" onclick="Pages.sales.editProject(${p.id})">แก้ไข</button>`:''}
+        <button class="btn btn-out btn-xs" onclick="Pages.sales.viewHandover(${p.id})">เอกสาร</button>
+        <button class="btn btn-out btn-xs" onclick="Pages.sales.manageFiles(${p.id})" title="ไฟล์แนบ">${hasFiles?'📎✓':'📎'}</button>
+        ${canDel?`<button class="btn btn-danger btn-xs" onclick="Pages.sales.deleteProj(${p.id})">ลบ</button>`:''}
+      </td>
+    </tr>`;
+  }).join('');
   document.getElementById('content').innerHTML=`<div class="ph"><div><h2>💼 Sales — Project & Handover</h2><p>ปิดการขายและส่งเอกสารเวียน</p></div>${canAdd?`<button class="btn btn-pri" onclick="Pages.sales.addProject()">+ ปิดการขาย / สร้าง Project</button>`:''}</div>
-  <div class="card"><div class="tbl-wrap"><table><thead><tr><th>Project Code</th><th>บริษัท</th><th>Package</th><th>จำนวน</th><th>วันตรวจ</th><th>สถานะ</th><th></th></tr></thead><tbody>${rows||'<tr><td colspan="7" class="empty">ยังไม่มี Project</td></tr>'}</tbody></table></div></div>`;
+  <div class="card"><div class="tbl-wrap"><table><thead><tr><th>Project Code</th><th>บริษัท</th><th>จำนวน</th><th>วันตรวจ</th><th>กำหนดส่งผล</th><th>สถานะ</th><th title="เอกสารเวียน">เวียน</th><th></th></tr></thead><tbody>${rows||'<tr><td colspan="8" class="empty"><div class="icon">💼</div><p>ยังไม่มี Project</p></td></tr>'}</tbody></table></div></div>`;
 },
 addProject(){
+  const closedCusts=DB.customer.listCustomers().filter(c=>c.sales_status==='Closed');
+  if(!closedCusts.length){U.toast('ไม่มีลูกค้าสถานะ Closed — กรุณาปิดการขายใน CRM ก่อน','warning');Router.navigate('customers');return;}
+  const cOpts='<option value="">-- เลือกบริษัท (Closed เท่านั้น) --</option>'+closedCusts.map(c=>`<option value="${c.id}">${U.esc(c.company_name)}</option>`).join('');
+  const sess=DB.auth.session();
   Modal.open(`
-  <div class="fg"><label class="req">บริษัท/ลูกค้า (พิมพ์เพื่อค้นหา)</label>
-    <div class="ac-wrap"><input id="ac_co_txt" placeholder="พิมพ์ชื่อบริษัท..."/><input type="hidden" id="ac_co_id"/></div>
+  <div class="fg"><label class="req">บริษัท/ลูกค้า (เฉพาะสถานะ Closed)</label>
+    <select id="sp_cust_sel" onchange="Pages.sales._fillFromCust(this.value)"><option value="">-- เลือกบริษัท --</option>${cOpts}</select>
   </div>
   <div class="fr"><div class="fg"><label class="req">วันที่ออกตรวจ</label><input id="sp_date" type="date"/></div>
-    <div class="fg"><label>เวลาเริ่ม</label><input id="sp_ts" type="time" value="07:00"/></div>
+    <div class="fg"><label class="req">วันที่กำหนดส่งผล</label><input id="sp_due" type="date"/></div>
+  </div>
+  <div class="fr"><div class="fg"><label>เวลาเริ่ม</label><input id="sp_ts" type="time" value="07:00"/></div>
     <div class="fg"><label>เวลาสิ้นสุด</label><input id="sp_te" type="time" value="16:00"/></div>
   </div>
-  <div class="fr"><div class="fg"><label class="req">จำนวนคน</label><input id="ac_head" type="number"/></div>
-    <div class="fg"><label>Package</label><input id="sp_pkg" placeholder="PKG-B"/></div>
-  </div>
+  <div class="fg"><label class="req">จำนวนคน</label><input id="ac_head" type="number"/></div>
   <div class="fg"><label class="req">สถานที่</label><input id="ac_loc" placeholder="ที่อยู่เต็ม"/></div>
   <div class="fr"><div class="fg"><label class="req">ชื่อผู้ประสานงาน</label><input id="ac_coord"/></div>
-    <div class="fg"><label class="req">เบอร์โทรผู้ประสานงาน</label><input id="ac_cphone"/></div>
+    <div class="fg"><label class="req">เบอร์โทร</label><input id="ac_cphone"/></div>
   </div>
   <div class="fr"><div class="fg"><label>เงื่อนไขพิเศษ</label><textarea id="sp_cond"></textarea></div>
-    <div class="fg"><label>สร้างโดย</label><input id="sp_by"/></div>
+    <div class="fg"><label>สร้างโดย</label><input id="sp_by" value="${sess?U.esc(sess.name):''}"/></div>
   </div>`,
   'ปิดการขาย / สร้าง Project ใหม่',()=>{
-    const cid=parseInt(document.getElementById('ac_co_id').value);
+    const cid=parseInt(document.getElementById('sp_cust_sel').value);
     const cust=DB.customer.getCustomer(cid);
     if(!cid||!cust)return U.toast('กรุณาเลือกบริษัท','danger');
     const head=parseInt(document.getElementById('ac_head').value)||0;
     const date=document.getElementById('sp_date').value;
+    const due=document.getElementById('sp_due').value;
     if(!head||!date)return U.toast('กรุณากรอกข้อมูลให้ครบ','danger');
-    const proj=DB.sales.saveProject({customer_id:cid,company_name:cust.company_name,package_code:document.getElementById('sp_pkg').value,headcount:head,onsite_date:date,onsite_time:document.getElementById('sp_ts').value,onsite_time_end:document.getElementById('sp_te').value,location:document.getElementById('ac_loc').value.trim(),coordinator_name:document.getElementById('ac_coord').value.trim(),coordinator_phone:document.getElementById('ac_cphone').value.trim(),status:'Closed',created_by:document.getElementById('sp_by').value.trim()});
+    const proj=DB.sales.saveProject({customer_id:cid,company_name:cust.company_name,headcount:head,onsite_date:date,due_date:due,onsite_time:document.getElementById('sp_ts').value,onsite_time_end:document.getElementById('sp_te').value,location:document.getElementById('ac_loc').value.trim(),coordinator_name:document.getElementById('ac_coord').value.trim(),coordinator_phone:document.getElementById('ac_cphone').value.trim(),status:'Closed',created_by:document.getElementById('sp_by').value.trim(),handover_sent:false});
     DB.sales.saveHandover({project_id:proj.id,conditions:document.getElementById('sp_cond').value.trim(),sent_at:DB._now()});
-    DB.customer.saveCustomer({...cust,sales_status:'Closed',closed_at:DB._now()});
     Modal.close();this.render();U.toast(`✅ สร้าง Project ${proj.project_code} สำเร็จ`);
+    if(typeof LineNotify!=='undefined')LineNotify.send(`📋 [MCK] สร้าง Project ใหม่\n${proj.project_code}\n🏢 ${cust.company_name}\n📆 วันตรวจ: ${proj.onsite_date}`);
+    if(typeof NavBadges!=='undefined')NavBadges.update();
   });
-  setTimeout(()=>acCustomer('ac_co_txt','ac_co_id'),100);
+},
+_fillFromCust(cid){
+  const c=DB.customer.getCustomer(parseInt(cid));if(!c)return;
+  const el=id=>document.getElementById(id);
+  if(el('ac_loc'))el('ac_loc').value=c.address||'';
+  if(el('ac_coord'))el('ac_coord').value=c.contact_name||'';
+  if(el('ac_cphone'))el('ac_cphone').value=c.phone||'';
+  if(el('ac_head'))el('ac_head').value=c.employee_count||'';
 },
 editProject(id){
   const p=DB.sales.getProject(id);
-  const sOpts=U.sel(STATUS_FLOW.map(s=>({v:s,l:s})),p.status);
   Modal.open(`<div class="fg"><label>Project Code</label><input value="${p.project_code}" disabled/></div>
   <div class="fr"><div class="fg"><label>จำนวนคน</label><input id="ep_h" type="number" value="${p.headcount}"/></div>
     <div class="fg"><label>วันตรวจ</label><input id="ep_d" type="date" value="${p.onsite_date}"/></div></div>
   <div class="fr"><div class="fg"><label>เวลาเริ่ม</label><input id="ep_ts" type="time" value="${p.onsite_time||'07:00'}"/></div>
     <div class="fg"><label>เวลาสิ้นสุด</label><input id="ep_te" type="time" value="${p.onsite_time_end||'16:00'}"/></div></div>
-  <div class="fg"><label>สถานที่</label><input id="ep_loc" value="${U.esc(p.location||'')}"/></div>
+  <div class="fr"><div class="fg"><label>สถานที่</label><input id="ep_loc" value="${U.esc(p.location||'')}"/></div>
+    <div class="fg"><label>กำหนดส่งผล</label><input id="ep_due" type="date" value="${p.due_date||''}"/></div></div>
   <div class="fr"><div class="fg"><label>ผู้ประสานงาน</label><input id="ep_co" value="${U.esc(p.coordinator_name||'')}"/></div>
-    <div class="fg"><label>เบอร์ประสานงาน</label><input id="ep_cp" value="${U.esc(p.coordinator_phone||'')}"/></div></div>
-  <div class="fg"><label>สถานะ</label><select id="ep_st">${sOpts}</select></div>`,
+    <div class="fg"><label>เบอร์ประสานงาน</label><input id="ep_cp" value="${U.esc(p.coordinator_phone||'')}"/></div></div>`,
   'แก้ไข Project',()=>{
-    DB.sales.saveProject({...p,headcount:parseInt(document.getElementById('ep_h').value)||p.headcount,onsite_date:document.getElementById('ep_d').value,onsite_time:document.getElementById('ep_ts').value,onsite_time_end:document.getElementById('ep_te').value,location:document.getElementById('ep_loc').value,coordinator_name:document.getElementById('ep_co').value,coordinator_phone:document.getElementById('ep_cp').value,status:document.getElementById('ep_st').value});
+    DB.sales.saveProject({...p,headcount:parseInt(document.getElementById('ep_h').value)||p.headcount,onsite_date:document.getElementById('ep_d').value,onsite_time:document.getElementById('ep_ts').value,onsite_time_end:document.getElementById('ep_te').value,location:document.getElementById('ep_loc').value,due_date:document.getElementById('ep_due').value,coordinator_name:document.getElementById('ep_co').value,coordinator_phone:document.getElementById('ep_cp').value});
     Modal.close();this.render();U.toast('✅ อัปเดต Project แล้ว');
   });
 },
@@ -348,6 +430,61 @@ viewHandover(id){
   <div class="sr"><span>ไฟล์รายชื่อ</span><span class="tag">${h?.name_list_file||'ยังไม่มี'}</span></div>
   <div class="sr"><span>ใบเสนอราคา</span><span class="tag">${h?.quotation_file||'ยังไม่มี'}</span></div>`,
   'เอกสารเวียนภายใน');
+},
+tickHandover(id,val){
+  const p=DB.sales.getProject(id);if(!p)return;
+  DB.sales.saveProject({...p,handover_sent:val});
+  U.toast(val?'✅ เอกสารเวียนส่งแล้ว':'↩ ยกเลิกเครื่องหมาย');
+  if(typeof NavBadges!=='undefined')NavBadges.update();
+},
+deleteProj(id){
+  if(!U.confirm('ลบ Project นี้ทั้งหมด?'))return;
+  DB.sales.deleteProject(id);this.render();
+  U.toast('✅ ลบ Project แล้ว');
+  if(typeof NavBadges!=='undefined')NavBadges.update();
+},
+manageFiles(id){
+  const p=DB.sales.getProject(id);
+  const cats=[
+    {key:'file_namelist',label:'ไฟล์รายชื่อ',icon:'👥'},
+    {key:'file_layout',label:'Layout',icon:'🗺'},
+    {key:'file_report_doc',label:'เอกสารเวียนทำผล',icon:'📋'},
+    {key:'file_contract',label:'ข้อตกลงใช้บริการ',icon:'📝'},
+  ];
+  const data=JSON.parse(localStorage.getItem('proj_files_'+id)||'{}');
+  let html=`<div class="ab info mb4">📎 ${U.esc(p.project_code)} — ${U.esc(p.company_name)}</div>`;
+  cats.forEach(cat=>{
+    const files=data[cat.key]||[];
+    html+=`<div style="margin-bottom:14px">
+      <div class="sec-title">${cat.icon} ${cat.label}</div>
+      ${files.map((f,i)=>`<div style="display:flex;align-items:center;gap:8px;padding:7px 11px;background:var(--surf2);border:1px solid var(--bdr);border-radius:8px;margin-bottom:5px;font-size:12px">
+        <span style="font-size:16px;flex-shrink:0">${cat.icon}</span>
+        <span style="flex:1;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${U.esc(f.name)}</span>
+        <span style="color:var(--txt-lt)">${f.size}</span>
+        <button style="background:none;border:none;cursor:pointer;color:var(--txt-lt);font-size:13px;padding:2px 4px;border-radius:4px" onclick="Pages.sales._rmFile(${id},'${cat.key}',${i})">✕</button>
+      </div>`).join('')}
+      ${!files.length?'<p class="t-sm t-muted mb2">ยังไม่มีไฟล์</p>':''}
+      <div style="border:2px dashed var(--bdr-dk);border-radius:var(--r);padding:12px;text-align:center;cursor:pointer;color:var(--txt-lt);background:var(--surf2);transition:all .2s" onclick="document.getElementById('finp_${cat.key}_${id}').click()">
+        <div style="font-size:18px;margin-bottom:3px">📁</div><div style="font-size:11px">คลิกหรือลากไฟล์มาวาง</div>
+      </div>
+      <input type="file" id="finp_${cat.key}_${id}" multiple style="display:none" onchange="Pages.sales._addFile(${id},'${cat.key}',this)"/>
+    </div>`;
+  });
+  Modal.open(html,'จัดการไฟล์แนบ',null,true);
+},
+_addFile(pid,catKey,inp){
+  const data=JSON.parse(localStorage.getItem('proj_files_'+pid)||'{}');
+  if(!data[catKey])data[catKey]=[];
+  Array.from(inp.files).forEach(f=>{data[catKey].push({name:f.name,size:f.size>1048576?`${(f.size/1048576).toFixed(1)}MB`:`${Math.round(f.size/1024)}KB`,type:f.type,added_at:DB._now()});});
+  localStorage.setItem('proj_files_'+pid,JSON.stringify(data));
+  U.toast(`✅ แนบ ${inp.files.length} ไฟล์`);this.manageFiles(pid);
+},
+_rmFile(pid,catKey,idx){
+  if(!U.confirm('ลบไฟล์นี้?'))return;
+  const data=JSON.parse(localStorage.getItem('proj_files_'+pid)||'{}');
+  if(data[catKey])data[catKey].splice(idx,1);
+  localStorage.setItem('proj_files_'+pid,JSON.stringify(data));
+  this.manageFiles(pid);
 }};
 
 /* ── OP CHECKLIST (เตรียมงาน) ── */
@@ -509,14 +646,28 @@ Pages.op_prep={
     const canAdd=DB.auth.can('add','op_prep'),canEdit=DB.auth.can('edit','op_prep'),canDel=DB.auth.can('delete','op_prep');
     const rows=jos.slice().reverse().map(jo=>{
       const p=DB.sales.getProject(jo.project_id);
-      return`<tr><td class="fw6">${p?.project_code||'-'}</td><td>${jo.company_name}</td><td>${U.fmtD(jo.onsite_date)}</td><td>${(jo.headcount||0).toLocaleString()}</td><td>${U.badge(jo.status||'Draft')}</td><td>
-        ${canEdit?`<button class="btn btn-out btn-xs" onclick="Pages.op_prep.editJO(${jo.id})">แก้ไข</button>`:''}
-        <button class="btn btn-pri btn-xs" onclick="Pages.op_prep.viewJO(${jo.id})">ดู/พิมพ์</button>
-        ${canDel?`<button class="btn btn-danger btn-xs" onclick="Pages.op_prep.delJO(${jo.id})">ลบ</button>`:''}
-      </td></tr>`;
+      const ckl=JSON.parse(localStorage.getItem('ckl__'+jo.project_id)||'{}');
+      const cklDone=Object.keys(ckl).filter(k=>!k.endsWith('_note')&&ckl[k]).length;
+      const isReady=cklDone>=10&&(jo.status==='Confirmed'||jo.status==='Completed');
+      const readyBadge=isReady
+        ?'<span class="badge b-completed" style="font-size:10px">✅ พร้อมออกหน่วย</span>'
+        :`<span class="badge b-draft" style="font-size:10px">Checklist ${cklDone}/10</span>`;
+      return`<tr>
+        <td class="fw6">${p?.project_code||'-'}</td>
+        <td>${U.esc(jo.company_name)}</td>
+        <td>${U.fmtD(jo.onsite_date)}</td>
+        <td>${(jo.headcount||0).toLocaleString()}</td>
+        <td>${U.badge(jo.status||'Draft')}</td>
+        <td>${readyBadge}</td>
+        <td>
+          ${canEdit?`<button class="btn btn-out btn-xs" onclick="Pages.op_prep.editJO(${jo.id})">แก้ไข</button>`:''}
+          <button class="btn btn-pri btn-xs" onclick="Pages.op_prep.viewJO(${jo.id})">ดู/พิมพ์</button>
+          ${canDel?`<button class="btn btn-danger btn-xs" onclick="Pages.op_prep.delJO(${jo.id})">ลบ</button>`:''}
+        </td>
+      </tr>`;
     }).join('');
     document.getElementById('content').innerHTML=`<div class="ph"><div><h2>📋 Operation — ใบแจ้งงาน</h2><p>สร้างและจัดการใบแจ้งงาน พร้อมพิมพ์ A4</p></div>${canAdd?`<button class="btn btn-pri" onclick="Pages.op_prep.createJO()">+ สร้างใบแจ้งงาน</button>`:''}</div>
-    <div class="card"><div class="tbl-wrap"><table><thead><tr><th>Project</th><th>บริษัท</th><th>วันตรวจ</th><th>จำนวน</th><th>สถานะ</th><th></th></tr></thead><tbody>${rows||'<tr><td colspan="6" class="empty">ยังไม่มีใบแจ้งงาน</td></tr>'}</tbody></table></div></div>`;
+    <div class="card"><div class="tbl-wrap"><table><thead><tr><th>Project</th><th>บริษัท</th><th>วันตรวจ</th><th>จำนวน</th><th>ใบแจ้งงาน</th><th>สถานะเตรียมงาน</th><th></th></tr></thead><tbody>${rows||'<tr><td colspan="6" class="empty">ยังไม่มีใบแจ้งงาน</td></tr>'}</tbody></table></div></div>`;
   },
   createJO(){
     const projs=DB.sales.listProjects().filter(p=>['Closed','Onsite'].includes(p.status));
@@ -1230,15 +1381,38 @@ Pages.report={render(){
     ${canEdit?`<button class="btn btn-out btn-xs" onclick="Pages.sales.editProject(${p.id})">แก้ไข</button>`:''}
     <button class="btn btn-out btn-xs" onclick="Pages.sales.viewHandover(${p.id})">เอกสาร</button>
   </td></tr>`).join('');
-  const rows=plans.map(rp=>{const p=DB.sales.getProject(rp.project_id);return`<tr><td class="fw6">${p?.project_code||'-'}</td><td>${p?.company_name||'-'}</td><td>${rp.program_code}</td><td>${(rp.headcount||0).toLocaleString()}</td><td>${U.fmtD(rp.onsite_date)}</td><td>${U.tatBadge(rp.sla_deadline)}</td><td>${U.badge(rp.status)}</td><td>
-    <button class="btn btn-out btn-xs" onclick="Pages.report.viewPlan(${rp.project_id})">ดูแผน</button>
-    ${canEdit?`<button class="btn btn-out btn-xs" onclick="Pages.report.editPlan(${rp.id})">แก้ไข</button>`:''}
-    <button class="btn btn-out btn-xs" onclick="Pages.report.viewPatients(${rp.project_id})">รายชื่อ</button>
-  </td></tr>`;}).join('');
+  const rows=plans.map(rp=>{
+    const p=DB.sales.getProject(rp.project_id);
+    const meta=JSON.parse(localStorage.getItem('rp_meta_'+rp.project_id)||'{}');
+    const canEditRp=canEdit;
+    const mkCk=(key,title)=>`<td style="text-align:center"><input type="checkbox" ${meta[key]?'checked':''} ${canEditRp?'':'disabled'} style="width:15px;height:15px;accent-color:var(--suc);cursor:${canEditRp?'pointer':'default'}" onchange="Pages.report._toggleMeta(${rp.project_id},'${key}',this.checked)" title="${title}"/></td>`;
+    return`<tr>
+      <td class="fw6 mono">${p?.project_code||'-'}</td>
+      <td>${U.esc(p?.company_name||'-')}</td>
+      <td>${rp.program_code}</td>
+      <td>${(rp.headcount||0).toLocaleString()}</td>
+      <td>${U.fmtD(rp.onsite_date)}</td>
+      ${mkCk('set_plan','Set Plan เสร็จแล้ว')}
+      ${mkCk('send_doc','ส่งเอกสารเวียนแล้ว')}
+      ${mkCk('key_raw','คีย์ผลดิบแล้ว')}
+      <td>${U.tatBadge(rp.sla_deadline)}</td>
+      <td>${U.badge(rp.status)}</td>
+      <td>
+        <button class="btn btn-out btn-xs" onclick="Pages.report.viewPlan(${rp.project_id})">ดูแผน</button>
+        ${canEdit?`<button class="btn btn-out btn-xs" onclick="Pages.report.editPlan(${rp.id})">แก้ไข</button>`:''}
+        <button class="btn btn-out btn-xs" onclick="Pages.report.viewPatients(${rp.project_id})">รายชื่อ</button>
+      </td>
+    </tr>`;
+  }).join('');
   document.getElementById('content').innerHTML=`<div class="ph"><div><h2>📋 Report — ทีมทำผล</h2><p>Project & Handover + Project Plan + แปลผล</p></div>${canAdd?`<button class="btn btn-pri" onclick="Pages.report.addPlan()">+ สร้าง Project Plan</button>`:''}</div>
   <div class="tabs"><div class="tab active" onclick="switchTab(this,'rt1')">📁 Project & Handover</div><div class="tab" onclick="switchTab(this,'rt2')">📋 Project Plan & Report</div></div>
   <div id="rt1" class="tp active"><div class="card"><div class="tbl-wrap"><table><thead><tr><th>Project Code</th><th>บริษัท</th><th>จำนวน</th><th>วันตรวจ</th><th>สถานะ</th><th></th></tr></thead><tbody>${projRows||'<tr><td colspan="6" class="empty">ยังไม่มี Project</td></tr>'}</tbody></table></div></div></div>
-  <div id="rt2" class="tp"><div class="card"><div class="tbl-wrap"><table><thead><tr><th>Project</th><th>บริษัท</th><th>Program</th><th>จำนวน</th><th>วันตรวจ</th><th>SLA</th><th>สถานะ</th><th></th></tr></thead><tbody>${rows||'<tr><td colspan="8" class="empty">ยังไม่มี Plan</td></tr>'}</tbody></table></div></div></div>`;
+  <div id="rt2" class="tp"><div class="card"><div class="tbl-wrap"><table><thead><tr><th>Project</th><th>บริษัท</th><th>Program</th><th>จำนวน</th><th>วันตรวจ</th><th style="text-align:center">Set Plan</th><th style="text-align:center">ส่งเอกสาร</th><th style="text-align:center">คีย์ผลดิบ</th><th>SLA</th><th>สถานะ</th><th></th></tr></thead><tbody>${rows||'<tr><td colspan="11" class="empty">ยังไม่มี Plan</td></tr>'}</tbody></table></div></div></div>`;
+},
+_toggleMeta(pid,key,val){
+  const m=JSON.parse(localStorage.getItem('rp_meta_'+pid)||'{}');
+  m[key]=val;localStorage.setItem('rp_meta_'+pid,JSON.stringify(m));
+  U.toast(`✅ ${key} = ${val?'เสร็จ':'ยังไม่เสร็จ'}`);
 },
 viewPlan(pid){
   const rp=DB.report.getPlan(pid),p=DB.sales.getProject(pid);
@@ -1319,44 +1493,241 @@ Pages.billing={render(){
   <tbody>${rows||'<tr><td colspan="9" class="empty">ยังไม่มี Invoice</td></tr>'}</tbody></table></div></div>`;
 },
 createInv(){
-  const projs=DB.sales.listProjects().filter(p=>['Billing','Completed'].includes(p.status));
+  const allProjs=DB.sales.listProjects().filter(p=>['Report','Billing','Completed'].includes(p.status));
   const exist=DB.billing.listInvoices().map(i=>i.project_id);
-  const avail=projs.filter(p=>!exist.includes(p.id));
-  if(!avail.length)return U.toast('ไม่มี Project พร้อม','warning');
-  const pOpts=U.sel(avail.map(p=>({v:p.id,l:`${p.project_code} — ${p.company_name}`})),'');
-  Modal.open(`<div class="fg"><label>Project</label><select id="bi_p">${pOpts}</select></div>
-  <div class="fr"><div class="fg"><label>รายได้ (ไม่รวม VAT)</label><input id="bi_rv" type="number" oninput="Pages.billing._calc()"/></div>
-    <div class="fg"><label>ต้นทุนรวม</label><input id="bi_ct" type="number" oninput="Pages.billing._calc()"/></div></div>
-  <div id="bi_pv" class="ab info mt4"></div>
-  <div class="fg mt4"><label>เงื่อนไขชำระ</label><select id="bi_tm">${U.sel(['ชำระภายใน 30 วัน','ชำระภายใน 45 วัน','ชำระทันที'],'ชำระภายใน 30 วัน')}</select></div>`,
-  'ออก Invoice',()=>{
-    const pid=parseInt(document.getElementById('bi_p').value);const rv=parseFloat(document.getElementById('bi_rv').value)||0;const ct=parseFloat(document.getElementById('bi_ct').value)||0;
+  const avail=allProjs.filter(p=>!exist.includes(p.id));
+  if(!avail.length)return U.toast('ไม่มี Project สถานะ Report/Billing พร้อมออก Invoice','warning');
+  const pOpts='<option value="">-- เลือก Project --</option>'+avail.map(p=>`<option value="${p.id}">${p.project_code} — ${U.esc(p.company_name)}</option>`).join('');
+  const compName=localStorage.getItem('cfg__company_name')||'OcciCare Co., Ltd.';
+  Modal.open(`
+  <div class="ab info mb4">📄 กรอกข้อมูลให้ครบถ้วนเพื่อออก Invoice อย่างเป็นทางการ</div>
+  <div class="fr">
+    <div class="fg"><label class="req">Project</label><select id="bi_p" onchange="Pages.billing._fillFromProj(this.value)">${pOpts}</select></div>
+    <div class="fg"><label>วันที่ออก Invoice</label><input id="bi_date" type="date" value="${new Date().toISOString().substr(0,10)}"/></div>
+  </div>
+  <div class="fr">
+    <div class="fg"><label>ชื่อบริษัทลูกค้า</label><input id="bi_cname" placeholder="จะดึงจาก Project อัตโนมัติ"/></div>
+    <div class="fg"><label>ที่อยู่ลูกค้า</label><input id="bi_caddr" placeholder="ที่อยู่สำหรับออก Invoice"/></div>
+  </div>
+  <div class="sec-title mt4">รายการบริการ</div>
+  <div class="fr">
+    <div class="fg"><label class="req">รายการหลัก (Description)</label><input id="bi_desc" placeholder="บริการตรวจสุขภาพประจำปี..."/></div>
+    <div class="fg"><label>จำนวนคน</label><input id="bi_qty" type="number" placeholder="0"/></div>
+  </div>
+  <div class="fr">
+    <div class="fg"><label class="req">ราคาต่อหน่วย (บาท)</label><input id="bi_uprice" type="number" oninput="Pages.billing._calc()"/></div>
+    <div class="fg"><label>ส่วนลด (บาท)</label><input id="bi_disc" type="number" value="0" oninput="Pages.billing._calc()"/></div>
+  </div>
+  <div class="sec-title mt4">ต้นทุน (สำหรับคำนวณกำไร — ไม่แสดงใน Invoice)</div>
+  <div class="fr">
+    <div class="fg"><label>ต้นทุนรวม (บาท)</label><input id="bi_ct" type="number" oninput="Pages.billing._calc()"/></div>
+    <div class="fg"><label>เงื่อนไขชำระเงิน</label>
+      <select id="bi_tm"><option value="">-- เลือก --</option>
+        <option>ชำระภายใน 30 วัน</option>
+        <option>ชำระภายใน 45 วัน</option>
+        <option>ชำระภายใน 60 วัน</option>
+        <option>ชำระทันที</option>
+        <option>ตามที่ตกลง</option>
+      </select>
+    </div>
+  </div>
+  <div class="fg"><label>หมายเหตุ / เงื่อนไขพิเศษ</label><textarea id="bi_note" placeholder="หมายเหตุท้าย Invoice..."></textarea></div>
+  <div id="bi_pv" class="ab info mt4" style="display:none"></div>`,
+  'ออก Invoice ใหม่',()=>{
+    const pid=parseInt(document.getElementById('bi_p').value);
+    if(!pid)return U.toast('กรุณาเลือก Project','danger');
+    const qty=parseInt(document.getElementById('bi_qty').value)||1;
+    const up=parseFloat(document.getElementById('bi_uprice').value)||0;
+    const disc=parseFloat(document.getElementById('bi_disc').value)||0;
+    const rv=Math.max(0,(qty*up)-disc);
+    if(!rv)return U.toast('กรุณาใส่ราคา','danger');
+    const ct=parseFloat(document.getElementById('bi_ct').value)||0;
     const vat=rv*.07;const tot=rv+vat;const prf=rv-ct;const mg=rv>0?(prf/rv*100).toFixed(1):0;
-    const inv=DB.billing.saveInvoice({project_id:pid,revenue:rv,vat,total:tot,cost:ct,profit:prf,margin:parseFloat(mg),payment_terms:document.getElementById('bi_tm').value,status:'Pending',issued_at:DB._now()});
+    const inv=DB.billing.saveInvoice({
+      project_id:pid,
+      client_name:document.getElementById('bi_cname').value,
+      client_address:document.getElementById('bi_caddr').value,
+      description:document.getElementById('bi_desc').value,
+      qty,unit_price:up,discount:disc,
+      revenue:rv,vat,total:tot,cost:ct,profit:prf,margin:parseFloat(mg),
+      payment_terms:document.getElementById('bi_tm').value,
+      note:document.getElementById('bi_note').value,
+      issued_date:document.getElementById('bi_date').value,
+      status:'Pending',issued_at:DB._now()
+    });
     const p=DB.sales.getProject(pid);if(p)DB.sales.saveProject({...p,status:'Billing'});
-    Modal.close();this.render();U.toast(`✅ ออก ${inv.invoice_no} แล้ว`);
+    Modal.close();this.render();U.toast(`✅ ออก ${inv.invoice_no} สำเร็จ`);
   });
 },
+_fillFromProj(pid){
+  const p=DB.sales.getProject(parseInt(pid));if(!p)return;
+  const cust=p.customer_id?DB.customer.getCustomer(p.customer_id):null;
+  const el=id=>document.getElementById(id);
+  if(el('bi_cname'))el('bi_cname').value=p.company_name||'';
+  if(el('bi_caddr')&&cust)el('bi_caddr').value=cust.address||'';
+  if(el('bi_qty'))el('bi_qty').value=p.headcount||'';
+  if(el('bi_desc'))el('bi_desc').value=`บริการตรวจสุขภาพประจำปี — ${p.company_name} วันที่ ${p.onsite_date||''}`;
+},
 _calc(){
-  const rv=parseFloat(document.getElementById('bi_rv')?.value)||0;const ct=parseFloat(document.getElementById('bi_ct')?.value)||0;
-  const p=document.getElementById('bi_pv');if(p&&rv>0){const prf=rv-ct;const mg=((prf/rv)*100).toFixed(1);p.textContent=`รายได้: ฿${U.fmt(rv)} | VAT: ฿${U.fmt(Math.round(rv*.07))} | รวม: ฿${U.fmt(Math.round(rv*1.07))} | กำไร: ฿${U.fmt(prf)} (${mg}%)`;}},
+  const qty=parseInt(document.getElementById('bi_qty')?.value)||1;
+  const up=parseFloat(document.getElementById('bi_uprice')?.value)||0;
+  const disc=parseFloat(document.getElementById('bi_disc')?.value)||0;
+  const ct=parseFloat(document.getElementById('bi_ct')?.value)||0;
+  const rv=Math.max(0,(qty*up)-disc);
+  const pv=document.getElementById('bi_pv');
+  if(pv&&rv>0){
+    const vat=rv*.07;const tot=rv+vat;const prf=rv-ct;const mg=rv>0?((prf/rv)*100).toFixed(1):0;
+    pv.style.display='flex';
+    pv.textContent=`ราคาก่อน VAT: ฿${U.fmt(rv)} | VAT 7%: ฿${U.fmt(Math.round(vat))} | รวมทั้งสิ้น: ฿${U.fmt(Math.round(tot))} | กำไร: ฿${U.fmt(Math.round(prf))} (${mg}%)`;
+  }
+},
 viewInv(id){
   const inv=DB.billing.listInvoices().find(i=>i.id===id);const p=DB.sales.getProject(inv.project_id);
   const costs=DB.billing.listCostTracking(inv.project_id);
-  let cHtml=costs.map(c=>`<div class="sr"><span>${c.category} — ${c.description}</span><span>฿${U.fmt(c.amount)}</span></div>`).join('');
-  Modal.open(`<div class="ab info mb4">📄 ${inv.invoice_no} — ${U.fmtD(inv.issued_at)}</div>
-  <div class="sr"><span>Project</span><span class="fw6">${p?.project_code}</span></div><div class="sr"><span>บริษัท</span><span>${p?.company_name}</span></div>
-  <div class="sr"><span>รายได้ (ไม่รวม VAT)</span><span>฿${U.fmt(inv.revenue)}</span></div>
-  <div class="sr"><span>VAT 7%</span><span>฿${U.fmt(Math.round(inv.vat))}</span></div>
-  <div class="sr"><span class="fw6">รวมทั้งสิ้น</span><span class="fw6 t-success" style="font-size:16px">฿${U.fmt(Math.round(inv.total))}</span></div>
-  <div class="divider"></div><div class="sec-title">รายการต้นทุน</div>${cHtml||'<p class="t-muted t-sm">ยังไม่มี</p>'}
-  <div class="divider"></div>
-  <div class="sr"><span>ต้นทุนรวม</span><span class="t-danger">฿${U.fmt(inv.cost)}</span></div>
-  <div class="sr"><span class="fw6">กำไร</span><span class="fw6 t-success">฿${U.fmt(inv.profit)}</span></div>
-  <div class="sr"><span>Margin</span><span class="fw6">${(inv.margin||0).toFixed(1)}%</span></div>
-  <div class="divider"></div><div class="sr"><span>เงื่อนไข</span><span>${inv.payment_terms}</span></div>
-  <div class="sr"><span>สถานะ</span><span>${U.badge(inv.status)}</span></div>`,
-  `Invoice — ${inv.invoice_no}`);
+  const compName=localStorage.getItem('cfg__company_name')||'OcciCare Co., Ltd.';
+  const LOGO_URL='https://occicare.com/wp-content/uploads/2025/08/occicare-logo.webp';
+  let cHtml=costs.map(c=>`<div class="sr"><span>${U.esc(c.category)} — ${U.esc(c.description)}</span><span>฿${U.fmt(c.amount)}</span></div>`).join('');
+  const invDate=inv.issued_date||inv.issued_at?.substr(0,10)||new Date().toISOString().substr(0,10);
+  const dueDate=inv.payment_terms?.includes('30')?new Date(new Date(invDate).setDate(new Date(invDate).getDate()+30)).toISOString().substr(0,10):invDate;
+  Modal.open(`
+  <div class="no-print btn-grp mb4">
+    <button class="btn btn-pri btn-sm" onclick="Pages.billing.printInv(${id})">🖨 พิมพ์ Invoice</button>
+  </div>
+  <div class="invoice-doc">
+    <div class="inv-header">
+      <div class="inv-header-inner">
+        <div class="inv-brand">
+          <div class="inv-brand-logo"><img src="${LOGO_URL}" alt="Logo" style="width:100%;height:100%;object-fit:cover" onerror="this.parentElement.innerHTML='🏥'"/></div>
+          <div><h1>${U.esc(compName)}</h1><p>Mobile Checkup Health Service</p></div>
+        </div>
+        <div class="inv-meta">
+          <div class="inv-no">${inv.invoice_no}</div>
+          <div class="inv-date">วันที่ออก: ${U.fmtD(invDate)}</div>
+          <div class="inv-type-badge">TAX INVOICE</div>
+        </div>
+      </div>
+    </div>
+    <div class="inv-body">
+      <div class="inv-parties">
+        <div class="inv-party"><h4>ผู้ออก Invoice</h4><div class="inv-party-name">${U.esc(compName)}</div><p>บริการตรวจสุขภาพเคลื่อนที่</p></div>
+        <div class="inv-party"><h4>ลูกค้า</h4><div class="inv-party-name">${U.esc(inv.client_name||p?.company_name||'-')}</div><p>${U.esc(inv.client_address||p?.location||'-')}</p></div>
+      </div>
+      <div class="sr"><span>Project</span><span class="fw6 mono">${p?.project_code||'-'}</span></div>
+      <div class="sr"><span>วันตรวจ</span><span>${U.fmtD(p?.onsite_date)}</span></div>
+      <div class="sr"><span>จำนวน</span><span>${(p?.headcount||0).toLocaleString()} คน</span></div>
+      <div class="divider"></div>
+      <table class="inv-items">
+        <thead><tr><th>รายการ</th><th style="text-align:center">จำนวน</th><th style="text-align:right">ราคา/หน่วย</th><th style="text-align:right">ส่วนลด</th><th style="text-align:right">รวม</th></tr></thead>
+        <tbody><tr>
+          <td>${U.esc(inv.description||'บริการตรวจสุขภาพ')}</td>
+          <td style="text-align:center">${inv.qty||p?.headcount||1} คน</td>
+          <td style="text-align:right">฿${U.fmt(inv.unit_price||Math.round(inv.revenue/(inv.qty||1)))}</td>
+          <td style="text-align:right">${inv.discount?`฿${U.fmt(inv.discount)}`:'-'}</td>
+          <td style="text-align:right;font-weight:600">฿${U.fmt(inv.revenue)}</td>
+        </tr></tbody>
+      </table>
+      <div class="inv-summary">
+        <div class="inv-summary-box">
+          <div class="inv-sum-row"><span>ราคาก่อน VAT</span><span>฿${U.fmt(inv.revenue)}</span></div>
+          <div class="inv-sum-row"><span>VAT 7%</span><span>฿${U.fmt(Math.round(inv.vat))}</span></div>
+          <div class="inv-sum-total"><span>รวมทั้งสิ้น</span><span style="color:var(--teal)">฿${U.fmt(Math.round(inv.total))}</span></div>
+        </div>
+      </div>
+      ${inv.note?`<div class="inv-footer-note"><strong>หมายเหตุ:</strong> ${U.esc(inv.note)}</div>`:''}
+      <div class="sr mt4"><span>เงื่อนไขชำระ</span><span>${U.esc(inv.payment_terms||'-')}</span></div>
+      <div class="sr"><span>กำหนดชำระ</span><span class="fw6">${U.fmtD(dueDate)}</span></div>
+      <div class="sr"><span>สถานะ</span><span>${U.badge(inv.status)}</span></div>
+      <div class="divider"></div>
+      <div class="sec-title">ต้นทุน & กำไร (Internal)</div>
+      ${cHtml||'<p class="t-muted t-sm mb2">ยังไม่มีรายการต้นทุน</p>'}
+      <div class="sr"><span>ต้นทุนรวม</span><span class="t-danger">฿${U.fmt(inv.cost)}</span></div>
+      <div class="sr"><span class="fw6">กำไรสุทธิ</span><span class="fw6 t-success">฿${U.fmt(inv.profit)}</span></div>
+      <div class="sr"><span>Gross Margin</span><span class="fw6 t-gold">${(inv.margin||0).toFixed(1)}%</span></div>
+      <div class="inv-sign-section">
+        <div class="inv-sign-box"><div class="inv-sign-line"></div><div class="inv-sign-label">ผู้จัดทำ</div><div class="inv-sign-name">${inv.created_by||''}</div></div>
+        <div class="inv-sign-box"><div class="inv-sign-line"></div><div class="inv-sign-label">ผู้อนุมัติ</div><div class="inv-sign-name">${inv.approved_by||''}</div></div>
+      </div>
+    </div>
+  </div>`,`Invoice — ${inv.invoice_no}`,null,true);
+},
+printInv(id){
+  const inv=DB.billing.listInvoices().find(i=>i.id===id);
+  const p=DB.sales.getProject(inv.project_id);
+  const compName=localStorage.getItem('cfg__company_name')||'OcciCare Co., Ltd.';
+  const LOGO_URL='https://occicare.com/wp-content/uploads/2025/08/occicare-logo.webp';
+  const invDate=inv.issued_date||inv.issued_at?.substr(0,10)||new Date().toISOString().substr(0,10);
+  const today=new Date().toLocaleDateString('th-TH',{year:'numeric',month:'long',day:'numeric'});
+  const w=window.open('','_blank');
+  w.document.write(`<!DOCTYPE html><html lang="th"><head><meta charset="UTF-8"><title>Invoice ${inv.invoice_no}</title>
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&family=Prompt:wght@700&family=IBM+Plex+Mono&display=swap" rel="stylesheet">
+  <style>*{box-sizing:border-box;margin:0;padding:0;}body{font-family:'Sarabun',sans-serif;color:#0F1E2E;background:#fff;padding:20px;}
+  .doc{max-width:760px;margin:0 auto;}
+  .hd{background:linear-gradient(135deg,#0B2340,#1A3A64);color:#fff;padding:24px 28px;border-radius:12px 12px 0 0;}
+  .hd-inner{display:flex;justify-content:space-between;align-items:flex-start;}
+  .brand{display:flex;align-items:center;gap:12px;}.brand-logo{width:48px;height:48px;border-radius:10px;overflow:hidden;background:rgba(196,163,90,.2);}
+  .brand-logo img{width:100%;height:100%;object-fit:cover;}.brand h1{font-family:'Prompt',sans-serif;font-size:16px;font-weight:700;margin-bottom:2px;}.brand p{font-size:10px;color:rgba(255,255,255,.55);}
+  .meta{text-align:right;}.inv-no{font-family:'IBM Plex Mono',monospace;font-size:18px;font-weight:700;}.inv-date{font-size:10px;color:rgba(255,255,255,.5);margin-top:2px;}
+  .badge-gold{display:inline-block;margin-top:5px;padding:2px 12px;border-radius:20px;background:linear-gradient(90deg,#C4A35A,#DEC07E);font-size:10px;font-weight:700;}
+  .body{padding:20px 28px;border:1px solid #DDE3EC;border-top:none;border-radius:0 0 12px 12px;}
+  .parties{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:16px;}
+  .party h4{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#7A90A6;margin-bottom:6px;}
+  .party-name{font-size:14px;font-weight:700;color:#0B2340;margin-bottom:3px;}.party p{font-size:11px;color:#3D5166;line-height:1.5;}
+  .sr{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #DDE3EC;font-size:12px;}
+  .sr:last-child{border-bottom:none;}.fw6{font-weight:600;}.mono{font-family:'IBM Plex Mono',monospace;}
+  table{width:100%;border-collapse:collapse;margin:12px 0;}
+  thead tr{background:#0B2340;}th{padding:8px 10px;font-size:9px;font-weight:700;color:rgba(255,255,255,.7);text-transform:uppercase;letter-spacing:.06em;text-align:left;border:none;}
+  td{padding:8px 10px;border-bottom:1px solid #DDE3EC;font-size:12px;}tr:last-child td{border-bottom:none;}tr:nth-child(even) td{background:#F8FAFC;}
+  .summary{display:flex;justify-content:flex-end;margin-top:10px;}
+  .sum-box{width:260px;background:#F8FAFC;border-radius:8px;border:1px solid #DDE3EC;padding:12px 14px;}
+  .sum-row{display:flex;justify-content:space-between;padding:3px 0;font-size:12px;}
+  .sum-total{display:flex;justify-content:space-between;padding:8px 0 0;margin-top:5px;border-top:2px solid #B8C4D4;font-weight:700;font-size:15px;color:#0B2340;}
+  .note{margin-top:14px;padding:10px 14px;background:#F8FAFC;border-radius:8px;border:1px solid #DDE3EC;font-size:11px;color:#3D5166;}
+  .signs{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:24px;padding-top:14px;border-top:1px solid #DDE3EC;}
+  .sign{text-align:center;}.sline{height:55px;border-bottom:1px dashed #B8C4D4;margin-bottom:7px;}.slabel{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#7A90A6;}.sname{font-size:11px;font-weight:600;color:#0F1E2E;margin-top:2px;}
+  .footer{display:flex;justify-content:space-between;margin-top:12px;padding-top:8px;border-top:1px solid #DDE3EC;font-size:9px;color:#B8C4D4;}
+  .no-print{display:flex;gap:8px;padding:10px 0 16px;}
+  .btn-p{padding:8px 20px;background:linear-gradient(135deg,#0B2340,#1A3A64);color:#fff;border:none;border-radius:8px;cursor:pointer;font-family:'Sarabun',sans-serif;font-size:13px;font-weight:600;}
+  @media print{@page{size:A4;margin:12mm;}.no-print{display:none!important;}}
+  </style></head><body>
+  <div class="doc">
+  <div class="no-print"><button class="btn-p" onclick="window.print()">🖨 พิมพ์ A4</button></div>
+  <div class="hd"><div class="hd-inner">
+    <div class="brand"><div class="brand-logo"><img src="${LOGO_URL}" alt="Logo" onerror="this.parentElement.innerHTML='🏥'"/></div>
+      <div><h1>${U.esc(compName)}</h1><p>Mobile Checkup Health Service</p></div></div>
+    <div class="meta"><div class="inv-no">${inv.invoice_no}</div><div class="inv-date">วันที่: ${today}</div><div class="badge-gold">TAX INVOICE / ใบแจ้งหนี้</div></div>
+  </div></div>
+  <div class="body">
+    <div class="parties">
+      <div class="party"><h4>ผู้ออก Invoice (Seller)</h4><div class="party-name">${U.esc(compName)}</div><p>บริการตรวจสุขภาพเคลื่อนที่</p></div>
+      <div class="party"><h4>ลูกค้า (Buyer)</h4><div class="party-name">${U.esc(inv.client_name||p?.company_name||'-')}</div><p>${U.esc(inv.client_address||p?.location||'-')}</p></div>
+    </div>
+    <div class="sr"><span>Project</span><span class="fw6 mono">${p?.project_code||'-'}</span></div>
+    <div class="sr"><span>วันให้บริการ</span><span>${U.fmtD(p?.onsite_date)}</span></div>
+    <div class="sr"><span>เงื่อนไขชำระ</span><span>${U.esc(inv.payment_terms||'-')}</span></div>
+    <table>
+      <thead><tr><th>รายการบริการ</th><th style="text-align:center">จำนวน (คน)</th><th style="text-align:right">ราคา/คน (บาท)</th><th style="text-align:right">ส่วนลด (บาท)</th><th style="text-align:right">รวม (บาท)</th></tr></thead>
+      <tbody><tr>
+        <td>${U.esc(inv.description||'บริการตรวจสุขภาพประจำปี')}</td>
+        <td style="text-align:center">${inv.qty||p?.headcount||1}</td>
+        <td style="text-align:right">${U.fmt(inv.unit_price||Math.round(inv.revenue/(inv.qty||1)))}</td>
+        <td style="text-align:right">${inv.discount?U.fmt(inv.discount):'-'}</td>
+        <td style="text-align:right;font-weight:600">${U.fmt(inv.revenue)}</td>
+      </tr></tbody>
+    </table>
+    <div class="summary"><div class="sum-box">
+      <div class="sum-row"><span>ราคาก่อน VAT</span><span>฿${U.fmt(inv.revenue)}</span></div>
+      <div class="sum-row"><span>VAT 7%</span><span>฿${U.fmt(Math.round(inv.vat))}</span></div>
+      <div class="sum-total"><span>รวมทั้งสิ้น</span><span>฿${U.fmt(Math.round(inv.total))}</span></div>
+    </div></div>
+    ${inv.note?`<div class="note"><strong>หมายเหตุ:</strong> ${U.esc(inv.note)}</div>`:''}
+    <div class="signs">
+      <div class="sign"><div class="sline"></div><div class="slabel">ผู้จัดทำ</div><div class="sname">${inv.created_by||''}</div></div>
+      <div class="sign"><div class="sline"></div><div class="slabel">ผู้รับใบแจ้งหนี้</div><div class="sname"></div></div>
+    </div>
+    <div class="footer"><span>${U.esc(compName)} — Invoice</span><span>พิมพ์: ${today}</span></div>
+  </div></div>
+  </body></html>`);
+  w.document.close();
 },
 editInv(id){
   const inv=DB.billing.listInvoices().find(i=>i.id===id);
